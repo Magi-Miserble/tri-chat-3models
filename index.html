@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>Gemini・ChatGPT・DeepSeek 三者会話（実API）</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body{margin:0;background:#0f1115;color:#e7ecf3;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto;}
+    header{padding:10px;border-bottom:1px solid #222838;background:#161a22;position:sticky;top:0}
+    main{max-width:1100px;margin:0 auto;padding:12px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    textarea{flex:1;min-height:60px;background:#161a22;border:1px solid #222838;border-radius:8px;color:#e7ecf3;padding:10px}
+    select,button{background:#161a22;border:1px solid #222838;border-radius:8px;color:#e7ecf3;padding:8px 10px}
+    .thread{margin-top:10px;background:#161a22;border:1px solid #222838;border-radius:12px;padding:10px;height:70vh;overflow:auto}
+    .msg{margin:10px 6px}
+    .meta{font-size:12px;color:#8b94a7}
+    .name{font-weight:700;margin-right:8px}
+    .bubble{margin-top:4px;background:#0b0e14;border:1px solid #222838;border-radius:12px;padding:10px;white-space:pre-wrap}
+  </style>
+</head>
+<body>
+<header>
+  <div class="row">
+    <strong>三者会話（実API・GitHub→Vercel）</strong>
+    <label><input type="checkbox" id="autoRound" checked /> ラウンドロビン自動応答</label>
+  </div>
+</header>
+
+<main>
+  <div class="thread" id="thread" aria-live="polite"></div>
+
+  <div class="row" style="margin-top:8px">
+    <select id="speaker">
+      <option value="Gemini">Gemini</option>
+      <option value="ChatGPT">ChatGPT</option>
+      <option value="DeepSeek">DeepSeek</option>
+    </select>
+    <textarea id="input" placeholder="最初の発話を入力（Ctrl/Cmd + Enterで送信）"></textarea>
+    <button id="send">Send</button>
+  </div>
+</main>
+
+<script>
+const $ = s=>document.querySelector(s);
+const thread = $('#thread');
+const speakerSel = $('#speaker');
+const input = $('#input');
+const autoRound = $('#autoRound');
+const order = ["Gemini","ChatGPT","DeepSeek"];
+
+let history = []; // {speaker, text}
+
+function addMsg(speaker, text){
+  history.push({ speaker, text });
+  const wrap = document.createElement('div');
+  wrap.className = 'msg';
+  wrap.innerHTML = `<div class="meta"><span class="name">${speaker}</span><span>${new Date().toLocaleString()}</span></div>
+                    <div class="bubble"></div>`;
+  wrap.querySelector('.bubble').textContent = text;
+  thread.appendChild(wrap);
+  thread.scrollTop = thread.scrollHeight;
+}
+
+async function callTurn(speaker){
+  const r = await fetch("/api/turn", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ speaker, history })
+  });
+  const j = await r.json();
+  if(!r.ok) throw new Error(j.error || "request failed");
+  return j.text || "";
+}
+
+async function stepSequence(startSpeaker){
+  let idx = order.indexOf(startSpeaker);
+  for(let i=1;i<order.length;i++){
+    const spk = order[(idx+i)%order.length];
+    const reply = await callTurn(spk);
+    addMsg(spk, reply);
+  }
+}
+
+async function send(){
+  const text = input.value.trim();
+  if(!text) return;
+  const spk = speakerSel.value;
+  addMsg(spk, text);
+  input.value = '';
+
+  if(autoRound.checked){
+    try{
+      await stepSequence(spk);
+    }catch(e){
+      addMsg("System", `エラー: ${e.message}`);
+    }
+  }
+}
+
+$('#send').addEventListener('click', send);
+input.addEventListener('keydown', e=>{
+  if((e.ctrlKey||e.metaKey) && e.key==='Enter'){ e.preventDefault(); send(); }
+});
+</script>
+</body>
+</html>
